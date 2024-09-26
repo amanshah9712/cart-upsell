@@ -1,0 +1,177 @@
+{% assign products_json = shop.metafields.your_namespace.shop_product_details %}
+
+{% comment %} <div class="products" id="product-list"></div> {% endcomment %}
+
+<style>
+    /* Basic styles for the product grid */
+    .products {
+        display: flex;
+    width: auto;
+    overflow-y: auto;
+        /* display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+        gap: 20px;
+        margin: 20px; */
+    }
+
+    .product {
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        padding: 16px;
+        text-align: center;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        height: 100%;
+    }
+
+    .product img {
+        max-width: 100%;
+        height: 150px;
+        object-fit: cover;
+        border-radius: 8px;
+    }
+
+    .add-to-cart {
+        background-color: #007bff;
+        color: white;
+        padding: 10px 15px;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        margin-top: 10px;
+        transition: background-color 0.3s;
+    }
+
+    .add-to-cart:hover {
+        background-color: #0056b3;
+    }
+
+    .variant-select {
+        margin-top: 10px;
+        padding: 5px;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+        width: 100%;
+    }
+</style>
+
+<script>
+    // Convert the Liquid variable to a JSON string properly
+    var productsJson = '{{ products_json | escape | strip_newlines }}';
+
+    // Log the raw JSON string to see what it looks like
+    console.log("Raw JSON string:", productsJson);
+
+    // Try to parse the JSON string
+    try {
+        // Decode HTML entities if needed
+        productsJson = decodeHtmlEntities(productsJson);
+
+        // Now parse the JSON string
+        var products = JSON.parse(productsJson); // Ensure it is valid JSON
+        
+        // Log the parsed products
+        console.log("Parsed Products:", products);
+
+        // Preselected variant ID (for example: "44409706184889")
+        var preselectedVariantId = "44409706184889";
+
+        // Get the container where we want to display the products
+        // var productListContainer = document.getElementById('product-list');
+        var upsellProductContainer = document.getElementById('upsell-product-list');
+        console.log("upsellProductContainer",upsellProductContainer)
+
+        // Iterate over the products and display them
+        products.forEach(function(product) {
+    // Create a div for each product
+    var productDiv = document.createElement('div');
+    productDiv.className = 'product';
+    productDiv.id = 'product-' + product.id.split('/').pop();
+
+    // Preselected variant logic
+    var selectedVariantId = preselectedVariantId || product.variants[0].id.split('/').pop();
+
+    // Generate variant options with only the number as the value
+    var variantOptions = product.variants.map(function(variant) {
+        var variantNumber = variant.id.split('/').pop(); // Extract the number part from the variant ID
+        var isSelected = (variantNumber === selectedVariantId) ? 'selected' : ''; // Check if it is the selected variant
+        return `<option value="${variantNumber}" ${isSelected}>${variant.varaint_title}</option>`;
+    }).join('');
+
+    // Create product title, description, image, and "Add to Cart" button with form
+    productDiv.innerHTML = `
+        <img src="${product.image}" alt="${product.title}">
+        <h2 style="margin: 0;">${product.title}</h2>
+        <p style="margin: 0;">Price: $${product.price}</p>
+        <select class="variant-select" id="variant-select-${product.id.split('/').pop()}">
+            ${variantOptions}
+        </select><br>
+        <product-form class="product-form" data-hide-errors="false" data-section-id="">
+      <div class="product-form__error-message-wrapper" role="alert" hidden="" bis_skin_checked="1">
+        <svg aria-hidden="true" focusable="false" class="icon icon-error" viewBox="0 0 13 13">
+          <circle cx="6.5" cy="6.50049" r="5.5" stroke="white" stroke-width="2"></circle>
+          <circle cx="6.5" cy="6.5" r="5.5" fill="#EB001B" stroke="#EB001B" stroke-width="0.7"></circle>
+          <path d="M5.87413 3.52832L5.97439 7.57216H7.02713L7.12739 3.52832H5.87413ZM6.50076 9.66091C6.88091 9.66091 7.18169 9.37267 7.18169 9.00504C7.18169 8.63742 6.88091 8.34917 6.50076 8.34917C6.12061 8.34917 5.81982 8.63742 5.81982 9.00504C5.81982 9.37267 6.12061 9.66091 6.50076 9.66091Z" fill="white"></path>
+          <path d="M5.87413 3.17832H5.51535L5.52424 3.537L5.6245 7.58083L5.63296 7.92216H5.97439H7.02713H7.36856L7.37702 7.58083L7.47728 3.537L7.48617 3.17832H7.12739H5.87413ZM6.50076 10.0109C7.06121 10.0109 7.5317 9.57872 7.5317 9.00504C7.5317 8.43137 7.06121 7.99918 6.50076 7.99918C5.94031 7.99918 5.46982 8.43137 5.46982 9.00504C5.46982 9.57872 5.94031 10.0109 6.50076 10.0109Z" fill="white" stroke="#EB001B" stroke-width="0.7">
+        </path></svg>
+        <span class="product-form__error-message"></span>
+      </div>
+
+
+        <form method="post" action="/cart/add" id="product-form-7734154920121" accept-charset="UTF-8" class="form" enctype="multipart/form-data" novalidate="novalidate" data-type="add-to-cart-form"><input type="hidden" name="form_type" value="product"><input type="hidden" name="utf8" value="✓"><input type="hidden" name="id" value="${selectedVariantId}" class="product-variant-id"><div class="product-form__buttons" bis_skin_checked="1"><button id="ProductSubmitButton-7734154920121" type="submit" name="add" class="product-form__submit button button--full-width button--primary" aria-haspopup="dialog">
+            <span>Add to cart
+</span>
+
+<link href="//demo-new-shopping.myshopify.com/cdn/shop/t/1/assets/component-loading-spinner.css?v=116724955567955766481710142515" rel="stylesheet" type="text/css" media="all">
+
+<div class="loading__spinner hidden" bis_skin_checked="1">
+  <svg aria-hidden="true" focusable="false" class="spinner" viewBox="0 0 66 66" xmlns="http://www.w3.org/2000/svg">
+    <circle class="path" fill="none" stroke-width="6" cx="33" cy="33" r="30"></circle>
+  </svg>
+</div>
+</button></div><input type="hidden" name="product-id" value="7734154920121"></form>
+        </product-form>
+    `;
+
+    // Append the product div to the container
+    // productListContainer.appendChild(productDiv);
+    upsellProductContainer.appendChild(productDiv);
+
+    // Add event listener to update hidden input when variant changes
+    var variantSelect = document.getElementById('variant-select-' + product.id.split('/').pop());
+    
+    // Update the hidden input when the variant is selected
+    variantSelect.addEventListener('change', function() {
+        var newSelectedVariantId = variantSelect.value;
+        productDiv.querySelector('.product-variant-id').value = newSelectedVariantId; // Update hidden input value with the selected variant
+    });
+});
+
+
+    } catch (error) {
+        console.error("Error parsing JSON:", error);
+    }
+    
+    // Function to decode HTML entities
+    function decodeHtmlEntities(str) {
+        var txt = document.createElement("textarea");
+        txt.innerHTML = str;
+        return txt.value;
+    }
+</script>
+
+
+
+{% schema %}
+{
+  "name": "Star Rating",
+  "target": "body",
+  "stylesheet": "custom.css",
+  "settings": [
+    { "type": "product", "id": "product", "label": "Product", "autofill": true },
+    { "type": "color", "id": "colour", "label": "Star Colour", "default": "#ff0000" }
+  ]
+}
+{% endschema %}

@@ -1,0 +1,44 @@
+.product-grid-upsell {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(200px, 1fr));
+    gap: 20px;
+    margin-top: 20px;
+  }
+  
+  .product-row-upsell {
+    display: contents; 
+  }
+  
+  .product-upsell {
+    display: flex;
+    flex-direction: column;
+    text-align: center; 
+  
+  }
+  .product-image-upsell img {
+    width: 100%;
+    height: 300px; /* Set a fixed height for all images */
+    object-fit: cover;
+  }
+  
+  .product-title-upsell h2 {
+    font-size: 18px;
+    margin: 10px 0 5px;
+  }
+  
+ 
+  .product-description-upsell {
+    font-size: 14px;
+    color: #555;
+    margin-top: 5px;
+  }
+  .btn-upsell {
+    display: inline-block;
+    background-color: #000000; 
+    color: #fff;
+    padding: 10px 20px;
+    border: none;
+    cursor: pointer;
+    font-size: 16px;
+    margin-top: 10px;
+  }
