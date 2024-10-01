@@ -3,7 +3,7 @@
 client_id = "f524dce64074453a0155c52882f3c804"
 name = "upsell-cart-drawer"
 handle = "upsell-cart-drawer-9"
-application_url = "https://challenge-honduras-qt-hansen.trycloudflare.com"
+application_url = "https://mx-trembl-guys-nu.trycloudflare.com"
 embedded = true
 
 [build]
@@ -17,9 +17,9 @@ scopes = "read_products,write_products"
 
 [auth]
 redirect_urls = [
-  "https://challenge-honduras-qt-hansen.trycloudflare.com/auth/callback",
-  "https://challenge-honduras-qt-hansen.trycloudflare.com/auth/shopify/callback",
-  "https://challenge-honduras-qt-hansen.trycloudflare.com/api/auth/callback"
+  "https://mx-trembl-guys-nu.trycloudflare.com/auth/callback",
+  "https://mx-trembl-guys-nu.trycloudflare.com/auth/shopify/callback",
+  "https://mx-trembl-guys-nu.trycloudflare.com/api/auth/callback"
 ]
 
 [webhooks]
@@ -30,7 +30,7 @@ api_version = "2024-07"
   uri = "/webhooks"
 
 [app_proxy]
-url = "https://challenge-honduras-qt-hansen.trycloudflare.com"
+url = "https://mx-trembl-guys-nu.trycloudflare.com"
 subpath = "savemetafield-api"
 prefix = "a"
 

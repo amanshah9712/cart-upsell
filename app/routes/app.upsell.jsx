@@ -22,38 +22,60 @@ import { useState, useCallback, useEffect } from "react";
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
 
-  // Fetch products from Shopify
-  const productsResponse = await admin.graphql(`
-    query fetchProducts {
-      products(first: 10) {
-        edges {
-          node {
-            id
-            title
-            descriptionHtml
-            handle
-            images(first: 1) {
-              edges {
-                node {
-                  originalSrc
-                  altText
+  let allstoreProducts = [];
+  let hasNextPage = true;
+  let cursor = null;
+
+  // Recursive function to fetch products with pagination
+  while (hasNextPage) {
+    const productsResponse = await admin.graphql(`
+      query fetchProducts($first: Int!, $after: String) {
+        products(first: $first, after: $after) {
+          edges {
+            node {
+              id
+              title
+              descriptionHtml
+              handle
+              images(first: 1) {
+                edges {
+                  node {
+                    originalSrc
+                    altText
+                  }
                 }
               }
-            }
-            variants(first: 1) {
-              edges {
-                node {
-                  price
+              variants(first: 1) {
+                edges {
+                  node {
+                    price
+                  }
                 }
               }
             }
           }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
         }
       }
-    }
-  `);
+    `, {
+      variables: {
+        first: 250,  // Fetch 250 products at a time
+        after: cursor // Use the cursor from the last request
+      }
+    });
 
-  const productsResponseBody = await productsResponse.json();
+    const productsResponseBody = await productsResponse.json();
+    
+    // Add the fetched products to the list
+    allstoreProducts = allstoreProducts.concat(productsResponseBody.data.products.edges);
+    
+    // Update hasNextPage and cursor for the next request
+    hasNextPage = productsResponseBody.data.products.pageInfo.hasNextPage;
+    cursor = productsResponseBody.data.products.pageInfo.endCursor;
+  }
 
   // Fetch collections from Shopify
   const collectionsResponse = await admin.graphql(`
@@ -95,13 +117,11 @@ export const loader = async ({ request }) => {
 
   const collectionsResponseBody = await collectionsResponse.json();
 
+  // Fetch already added products
   const addedProductsResponse = await fetch('http://localhost:3000/getProducts');
-
   const allProducts = await addedProductsResponse.json();
+  const addedProductIds = allProducts.products || [];
 
-  const addedProductIds = allProducts.map(product => product.productId) || []; 
-
-  // Fetch product details for added product IDs
   const productDetailsResponse = await admin.graphql(`
     query fetchProductDetails($ids: [ID!]!) {
       nodes(ids: $ids) {
@@ -166,39 +186,6 @@ export const loader = async ({ request }) => {
 
 const responseBody = await response.json();
 const shopData = responseBody.data.shop;
-
-console.log("shopData.id",shopData.id)  
-
-
-
-// const mutation = `
-//   mutation {
-//     metafieldsSet(
-//       metafields: [
-//         {
-//           namespace: "your_namespace"
-//           key: "shop_product_details"
-//           value: "${productDataString}"
-//           type: "json"
-//           ownerId: "${shopData.id}"
-//         }
-//       ]) {
-//       metafields {
-//         id
-//       }
-//       userErrors {
-//         field
-//         message
-//       }
-//     }
-//   }
-// `;
-
-// Log the mutation for debugging
-// console.log(mutation,"mutaionData");
-
-// const mutationResponse = await admin.graphql(mutation);
-
 const metafieldUpdateResponse = await admin.graphql(`
   mutation {
       metafieldsSet(metafields: [
@@ -226,246 +213,211 @@ if (metafieldUpdateResponse.data?.metafieldsSet.userErrors.length > 0) {
 }
 
 
-
   return json({
-    products: productsResponseBody.data.products.edges,
+    products: allstoreProducts,
     collections: collectionsResponseBody.data.collections.edges,
-    addedProducts: allProducts.map(product => product.productId) || []  // Array of product IDs
+    addedProducts: addedProductIds
   });
 };
 
-// Server-side action to handle the product and metafield saving
+// Server-side action to handle the product updating
 export const action = async ({ request }) => {
-  console.log("gettthrer")
-  const { admin } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const formData = await request.formData();
-
   
   try {
-    console.log ("formData",formData)
-    const products = formData.get('products'); // Get the products value
-    const productArray = products ? products.split(',') : [];
-    console.log("productArray:", productArray);
+    const products = formData.get('products')?.split(',') || [];
+    console.log("products-gett",products)
 
     const response = await fetch("http://localhost:3000/addProduct", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ products: productArray }),
+      body: JSON.stringify({ 
+        shop_name: session.shop,
+        products
+      }),
     });
 
-    for (const productId of productArray) {
-      const productDetails = await admin.graphql(`{
-        product(id: "${productId}") {
-          title
-          variants(first: 1) {
-            edges {
-              node {
-                price
-              }
-            }
-          }
-        }
-      }`);
-    
-      const { title, variants } = productDetails.data.product;
-      const price = variants.edges[0]?.node.price;
-    
-      // const metafieldMutation = await admin.graphql(`
-      //   mutation createMetafield {
-      //     productUpdate(input: {
-      //       id: "${productId}",
-      //       metafields: [
-      //         {
-      //           namespace: "custom_namespace",
-      //           key: "product_title",
-      //           type: "single_line_text_field",
-      //           value: "${title}"
-      //         },
-      //         {
-      //           namespace: "custom_namespace",
-      //           key: "product_price",
-      //           type: "single_line_text_field",
-      //           value: "${price}"
-      //         }
-      //       ]
-      //     }) {
-      //       product {
-      //         id
-      //       }
-      //       userErrors {
-      //         field
-      //         message
-      //       }
-      //     }
-      //   }
-      // `);
-      
-      // Handle errors...
+    if (!response.ok) {
+      throw new Error("Failed to update products in external API.");
     }
-    
-
-    // if (!response.ok) {
-    //   throw new Error("Failed to save products to external API.");
-    // }
     return json({ success: true });
   } catch (error) {
     return json({ error: error.message }, { status: 500 });
   }
 };
 
-
 // Component to display products and collections
 export default function Products() {
-  const { products, collections, addedProducts ,admin } = useLoaderData();
+  const { products, collections, addedProducts } = useLoaderData();
   const [active, setActive] = useState(false);
   const [showCollections, setShowCollections] = useState(false);
-  const [selectedProducts, setSelectedProducts] = useState([]);
+  const [selectedProducts, setSelectedProducts] = useState(addedProducts);
   const [selectedCollections, setSelectedCollections] = useState([]);
   const [expandedCollections, setExpandedCollections] = useState([]);
-  const [showToast, setShowToast] = useState(false); // Toast state
-  const [updatedProducts, setUpdatedProducts] = useState(addedProducts);
+  const [showToast, setShowToast] = useState(false);
   const fetcher = useFetcher();
-  
-  useEffect(() => {
-    if (fetcher.data && fetcher.data.addedProducts) {
-      setUpdatedProducts(fetcher.data.addedProducts);
-    }
-  }, [fetcher.data]);
 
   // Toggle modal visibility
   const handleToggle = useCallback(() => {
     setActive(!active);
     if (active) {
-      setShowCollections(false); // Ensure collections modal is not shown when products modal is open
+      setShowCollections(false);
     }
   }, [active]);
 
   // Toggle between products and collections
-  const handleToggleCollections = useCallback(() => {
-    setShowCollections(!showCollections);
-  }, [showCollections]);
-
-  // Handle collection selection
-  const handleCollectionCheckboxChange = useCallback(
-    (id) => {
-      const productsInCollection = getProductsFromSelectedCollections(id);
-      if (selectedCollections.includes(id)) {
-        // Unselecting the collection
-        setSelectedProducts((prevProducts) =>
-          prevProducts.filter((productId) =>
-            !productsInCollection.map((product) => product.id).includes(productId)
-          )
-        );
-        setSelectedCollections((prevSelected) =>
-          prevSelected.filter((collectionId) => collectionId !== id)
-        );
-      } else {
-        // Selecting the collection
-        setSelectedCollections((prevSelected) => [...prevSelected, id]);
-        setSelectedProducts((prevSelected) => [
-          ...prevSelected,
-          ...productsInCollection.map((product) => product.id),
-        ]);
-      }
-    },
-    [selectedCollections, selectedProducts]
-  );
+  // const handleToggleCollections = useCallback(() => {
+  //   setShowCollections(!showCollections);
+  // }, [showCollections]);
 
   // Handle product selection
   const handleCheckboxChange = useCallback(
     (id) => {
-      setSelectedProducts((prevSelected) =>
-        prevSelected.includes(id)
-          ? prevSelected.filter((productId) => productId !== id)
-          : [...prevSelected, id]
+      setSelectedProducts(prev =>
+        prev.includes(id) ? prev.filter(productId => productId !== id) : [...prev, id]
       );
     },
     [selectedProducts]
   );
 
-  // Handle adding selected products to database
-  // Handle adding selected products to database
-// Handle adding selected products to database
-const handleAddToDatabase = useCallback(async () => {
-  try {
-    const response = await fetcher.submit(
-      { products: selectedProducts.join(',') }, // Join multiple IDs with a comma or another delimiter
-      { method: "post" } // Call the current route's action (no need to specify the URL)
-    );
-
-    // Check if the response is OK
-    if (!response.ok) {
-      throw new Error(`Error: ${response.statusText}`);
+  // Handle updating products in database
+  const handleAddToDatabase = useCallback(async () => {
+    try {
+      await fetcher.submit(
+        { products: selectedProducts.join(',') },
+        { method: "post" }
+      );
+  
+      setActive(false);
+      setShowToast(true);
+    } catch (error) {
+      console.error("Error updating products:", error);
     }
+  }, [selectedProducts, fetcher]);
 
-    setActive(false);  // Close modal
-    setSelectedProducts([]);  // Clear selected products
-    setShowToast(true);  // Show confirmation message
+  // Handle collection selection
+  // const handleCollectionCheckboxChange = useCallback(
+  //   (id) => {
+  //     const productsInCollection = getProductsFromSelectedCollections(id);
+  //     if (selectedCollections.includes(id)) {
+  //       // Unselecting the collection
+  //       setSelectedProducts((prevProducts) =>
+  //         prevProducts.filter((productId) =>
+  //           !productsInCollection.map((product) => product.id).includes(productId)
+  //         )
+  //       );
+  //       setSelectedCollections((prevSelected) =>
+  //         prevSelected.filter((collectionId) => collectionId !== id)
+  //       );
+  //     } else {
+  //       // Selecting the collection
+  //       setSelectedCollections((prevSelected) => [...prevSelected, id]);
+  //       setSelectedProducts((prevSelected) => [
+  //         ...prevSelected,
+  //         ...productsInCollection.map((product) => product.id),
+  //       ]);
+  //     }
+  //   },
+  //   [selectedCollections, selectedProducts]
+  // );
 
-  } catch (error) {
-    console.error("Error saving products and metafields:", error);
-  }
-}, [selectedProducts, fetcher]);
+  // // Toggle expansion of a collection
+  // const handleToggleCollectionExpansion = useCallback((id) => {
+  //   setExpandedCollections((prevExpanded) =>
+  //     prevExpanded.includes(id)
+  //       ? prevExpanded.filter((collectionId) => collectionId !== id)
+  //       : [...prevExpanded, id]
+  //   );
+  // }, []);
 
+  // // Get products of selected collections
+  // const getProductsFromSelectedCollections = (collectionId) => {
+  //   const collection = collections.find((collection) => collection.node.id === collectionId);
+  //   return collection ? collection.node.products.edges.map((product) => product.node) : [];
+  // };
 
-
-  // Function to save product data to Shopify Metafields
-// Function to save product data to Shopify Metafields
-
-
-  // Toggle expansion of a collection
-  const handleToggleCollectionExpansion = useCallback((id) => {
-    setExpandedCollections((prevExpanded) =>
-      prevExpanded.includes(id)
-        ? prevExpanded.filter((collectionId) => collectionId !== id)
-        : [...prevExpanded, id]
-    );
-  }, []);
-
-  // Get products of selected collections
-  const getProductsFromSelectedCollections = (collectionId) => {
-    const collection = collections.find((collection) => collection.node.id === collectionId);
-    return collection ? collection.node.products.edges.map((product) => product.node) : [];
-  };
-
-  // Determine if a collection checkbox should be checked based on its products
-  const isCollectionChecked = (collectionId) => {
-    const productsInCollection = getProductsFromSelectedCollections(collectionId);
-    return productsInCollection.every((product) => selectedProducts.includes(product.id));
-  };
+  // // Determine if a collection checkbox should be checked based on its products
+  // const isCollectionChecked = (collectionId) => {
+  //   const productsInCollection = getProductsFromSelectedCollections(collectionId);
+  //   return productsInCollection.every((product) => selectedProducts.includes(product.id));
+  // };
 
   return (
     <Frame>
-    <Page title="Products">
-      <Layout>
-        <Layout.Section>
-          <Card sectioned>
-            <Button onClick={() => { setActive(true); setShowCollections(false); }}>Browse Products</Button>
-            <Button onClick={() => { setActive(true); setShowCollections(true); }}>Browse Collections</Button>
+      <Page title="Products">
+        <Layout>
+          <Layout.Section>
+            <Card sectioned>
+              <Button onClick={() => { setActive(true); setShowCollections(false); }}>Browse Products</Button>
+              {/* <Button onClick={() => { setActive(true); setShowCollections(true); }}>Browse Collections</Button> */}
 
-            {/* Modal for product browsing */}
-            <Modal
-              open={active && !showCollections}
-              onClose={() => { setActive(false); setShowCollections(false); }}
-              title="Browse Products"
-              primaryAction={{
-                content: "Add to Database",
-                onAction: handleAddToDatabase,
-              }}
-              secondaryActions={[
-                {
-                  content: "Close",
-                  onAction: () => { setActive(false); setShowCollections(false); },
-                },
-              ]}
-              large
-            >
-              <Modal.Section>
+              {/* Modal for product browsing */}
+              <Modal
+                open={active && !showCollections}
+                onClose={() => { setActive(false); setShowCollections(false); }}
+                title="Browse Products"
+                primaryAction={{
+                  content: "Update Database",
+                  onAction: handleAddToDatabase,
+                }}
+                secondaryActions={[
+                  {
+                    content: "Close",
+                    onAction: () => { setActive(false); setShowCollections(false); },
+                  },
+                ]}
+                large
+              >
+                <Modal.Section>
+                  <ResourceList
+                    resourceName={{ singular: "product", plural: "products" }}
+                    items={products}
+                    renderItem={(item) => {
+                      const { id, title, images, variants } = item.node;
+                      const media = (
+                        <Thumbnail
+                          source={images.edges[0]?.node.originalSrc || ""}
+                          alt={images.edges[0]?.node.altText || ""}
+                        />
+                      );
+
+                      return (
+                        <ResourceItem
+                          id={id}
+                          media={media}
+                          accessibilityLabel={`View details for ${title}`}
+                        >
+                          <Checkbox
+                            label={
+                              <span>
+                                <h3>
+                                  <Text variant="bodyMd" fontWeight="bold">
+                                    {title}
+                                  </Text>
+                                </h3>
+                                <div>{variants.edges[0]?.node.price} USD</div>
+                              </span>
+                            }
+                            checked={selectedProducts.includes(id)}
+                            onChange={() => handleCheckboxChange(id)}
+                          />
+                        </ResourceItem>
+                      );
+                    }}
+                  />
+                </Modal.Section>
+              </Modal>
+            </Card>
+
+            {/* Display selected products */}
+            {selectedProducts.length > 0 && (
+              <Card title="Selected Products" sectioned>
                 <ResourceList
                   resourceName={{ singular: "product", plural: "products" }}
-                  items={products}
+                  items={products.filter((product) => selectedProducts.includes(product.node.id))}
                   renderItem={(item) => {
                     const { id, title, images, variants } = item.node;
                     const media = (
@@ -474,169 +426,33 @@ const handleAddToDatabase = useCallback(async () => {
                         alt={images.edges[0]?.node.altText || ""}
                       />
                     );
-
-                    // Check if product is already added to the database
-                    const isAdded = addedProducts.includes(id);
-
                     return (
                       <ResourceItem
                         id={id}
                         media={media}
                         accessibilityLabel={`View details for ${title}`}
                       >
-                        <Checkbox
-                          label={
-                            <span>
-                              <h3>
-                                <Text variant="bodyMd" fontWeight="bold">
-                                  {title}
-                                </Text>
-                              </h3>
-                              <div>{variants.edges[0]?.node.price} USD</div>
-                            </span>
-                          }
-                          checked={isAdded || selectedProducts.includes(id)}
-                          onChange={() => handleCheckboxChange(id)}
-                          disabled={isAdded} // Disable if already added
-                        />
+                        <h3>
+                          <Text variant="bodyMd" fontWeight="bold">
+                            {title}
+                          </Text>
+                        </h3>
+                        <div>{variants.edges[0]?.node.price} USD</div>
                       </ResourceItem>
                     );
                   }}
                 />
-              </Modal.Section>
-            </Modal>
-
-            {/* Modal for collection browsing */}
-            <Modal
-              open={active && showCollections}
-              onClose={() => { setActive(false); setShowCollections(false); }}
-              title="Browse Collections"
-              secondaryActions={[
-                {
-                  content: "Close",
-                  onAction: () => { setActive(false); setShowCollections(false); },
-                },
-              ]}
-              large
-            >
-              <Modal.Section>
-                <ResourceList
-                  resourceName={{ singular: "collection", plural: "collections" }}
-                  items={collections}
-                  renderItem={(item) => {
-                    const { id, title, images } = item.node;
-                    return (
-                      <ResourceItem
-                        id={id}
-                        accessibilityLabel={`View details for ${title}`}
-                        onClick={() => handleToggleCollectionExpansion(id)}
-                      >
-                        <Checkbox
-                          label={
-                            <span>
-                              <h3>
-                                <Text variant="bodyMd" fontWeight="bold">
-                                  {title}
-                                </Text>
-                              </h3>
-                            </span>
-                          }
-                          checked={isCollectionChecked(id)}
-                          onChange={() => handleCollectionCheckboxChange(id)}
-                        />
-
-                        {/* Show products of the collection if expanded */}
-                        <Collapsible open={expandedCollections.includes(id)}>
-                          <ResourceList
-                            resourceName={{ singular: "product", plural: "products" }}
-                            items={getProductsFromSelectedCollections(id)}
-                            renderItem={(productItem) => {
-                              const { id, title, images, variants } = productItem;
-                              const media = (
-                                <Thumbnail
-                                  source={images.edges[0]?.node.originalSrc || ""}
-                                  alt={images.edges[0]?.node.altText || ""}
-                                />
-                              );
-
-                              return (
-                                <ResourceItem
-                                  id={id}
-                                  media={media}
-                                  accessibilityLabel={`View details for ${title}`}
-                                >
-                                  <Checkbox
-                                    label={
-                                      <span>
-                                        <h3>
-                                          <Text variant="bodyMd" fontWeight="bold">
-                                            {title}
-                                          </Text>
-                                        </h3>
-                                        <div>{variants.edges[0]?.node.price} USD</div>
-                                      </span>
-                                    }
-                                    checked={selectedProducts.includes(id)}
-                                    onChange={() => handleCheckboxChange(id)}
-                                  />
-                                </ResourceItem>
-                              );
-                            }}
-                          />
-                        </Collapsible>
-                      </ResourceItem>
-                    );
-                  }}
-                />
-              </Modal.Section>
-            </Modal>
-          </Card>
-
-          {/* Display already added products */}
-          {/* // Display already added products */}
-          {updatedProducts.length > 0 && (
-  <Card title="Already Added Products" sectioned>
-    <ResourceList
-      resourceName={{ singular: "product", plural: "products" }}
-      items={products.filter((product) => updatedProducts.includes(product.node.id))}
-      renderItem={(item) => {
-        const { title, images, variants } = item.node;
-        const media = (
-          <Thumbnail
-            source={images.edges[0]?.node.originalSrc || ""}
-            alt={images.edges[0]?.node.altText || ""}
-          />
-        );
-        return (
-          <ResourceItem
-            id={item.node.id}
-            media={media}
-            accessibilityLabel={`View details for ${title}`}
-          >
-            <h3>
-              <Text variant="bodyMd" fontWeight="bold">
-                {title}
-              </Text>
-            </h3>
-            <div>{variants.edges[0]?.node.price} USD</div>
-          </ResourceItem>
-        );
-      }}
-    />
-  </Card>
-)}
-
-
-        </Layout.Section>
-      </Layout>
-       {/* Toast notification */}
-       {showToast && (
+              </Card>
+            )}
+          </Layout.Section>
+        </Layout>
+        {showToast && (
           <Toast
-            content="Product added successfully"
+            content="Products updated successfully"
             onDismiss={() => setShowToast(false)}
           />
         )}
-    </Page>
+      </Page>
     </Frame>
   );
 }
